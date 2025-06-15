@@ -1,6 +1,8 @@
 
 #iChannel0 "SpectralRaytracer/buffer-a.wgsl"
-#include "SpectralRaytracer/common.wgsl"
+
+#include "SpectralRaytracer/tracing/intersection.wgsl"
+#include "SpectralRaytracer/tracing/materials/interactions.wgsl"
 
 float gaussian(float x, float mu, float sigma)
 {
@@ -24,105 +26,6 @@ float XYZ2WavelengthApprox(float l, vec3 color) {
 }
 
 
-bool Sphere_hit(Sphere sphere, Ray ray, float t_min, float t_max, out Hit rec)
-{
-    vec3 oc = ray.origin - sphere.center;
-    float a = dot(ray.direction, ray.direction);
-    float b = dot(oc, ray.direction);
-    float c = dot(oc, oc) - sphere.radius * sphere.radius;
-
-    float discriminant = b * b - a * c;
-
-    if (discriminant > 0.0f)
-    {
-        float temp = (-b - sqrt(discriminant)) / a;
-
-        if (temp < t_max && temp > t_min){
-            rec.t = temp;
-            rec.p = ray.origin + rec.t * ray.direction;
-            rec.normal = (rec.p - sphere.center) / sphere.radius;
-            rec.mat = sphere.mat;
-            return true;
-        }
-
-        temp = (-b + sqrt(discriminant)) / a;
-
-        if (temp < t_max && temp > t_min){
-            rec.t = temp;
-            rec.p = ray.origin + rec.t * ray.direction;
-            rec.normal = (rec.p - sphere.center) / sphere.radius;
-            rec.mat = sphere.mat;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-//
-// Ray tracer helper functions
-//
-
-float FresnelSchlickRoughness(float cosTheta, float F0, float roughness) {
-    return F0 + (max((1. - roughness), F0) - F0) * pow(abs(1. - cosTheta), 5.0);
-}
-
-vec3 cosWeightedRandomHemisphereDirection(const vec3 n, inout float seed) {
-  	vec2 r = hash2(seed);
-	vec3  uu = normalize(cross(n, abs(n.y) > .5 ? vec3(1.,0.,0.) : vec3(0.,1.,0.)));
-	vec3  vv = cross(uu, n);
-	float ra = sqrt(r.y);
-	float rx = ra*cos(6.28318530718*r.x); 
-	float ry = ra*sin(6.28318530718*r.x);
-	float rz = sqrt(1.-r.y);
-	vec3  rr = vec3(rx*uu + ry*vv + rz*n);
-    return normalize(rr);
-}
-
-vec3 modifyDirectionWithRoughness(const vec3 normal, const vec3 n, const float roughness, inout float seed) {
-    vec2 r = hash2(seed);
-    
-	vec3  uu = normalize(cross(n, abs(n.y) > .5 ? vec3(1.,0.,0.) : vec3(0.,1.,0.)));
-	vec3  vv = cross(uu, n);
-	
-    float a = roughness*roughness;
-    
-	float rz = sqrt(abs((1.0-r.y) / clamp(1.+(a - 1.)*r.y,.00001,1.)));
-	float ra = sqrt(abs(1.-rz*rz));
-	float rx = ra*cos(6.28318530718*r.x); 
-	float ry = ra*sin(6.28318530718*r.x);
-	vec3  rr = vec3(rx*uu + ry*vv + rz*n);
-    
-    vec3 ret = normalize(rr);
-    return dot(ret,normal) > 0. ? ret : n;
-}
-
-vec2 randomInUnitDisk(inout float seed) {
-    vec2 h = hash2(seed) * vec2(1,6.28318530718);
-    float phi = h.y;
-    float r = sqrt(h.x);
-	return r*vec2(sin(phi),cos(phi));
-}
-
-//
-// Scene description
-//
-
-vec3 rotateY(const in vec3 p, const in float t) {
-    float co = cos(t);
-    float si = sin(t);
-    vec2 xz = mat2(co,si,-si,co)*p.xz;
-    return vec3(xz.x, p.y, xz.y);
-}
-
-bool opU(inout vec2 d, float iResult, in Material mat) {
-    if (iResult < d.y) {
-        d.y = iResult;
-        return true;
-    }
-    return false;
-}
-
 //
 // Palette by Íñigo Quílez: 
 // https://www.shadertoy.com/view/ll2GD3
@@ -134,22 +37,6 @@ vec3 pal(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
 float checkerBoard(vec2 p) {
    return mod(floor(p.x) + floor(p.y), 2.);
 }
-
-bool worldhit(in Ray ray, in vec2 dist, out Hit rec) {
-    Hit temp_rec;
-    bool hit_anything = false;
-    float closest_so_far = dist.y;
-
-    for (int i = 0; i < sceneList.length(); i++) {
-        if (Sphere_hit(sceneList[i], ray, dist.x, closest_so_far, temp_rec)) {
-            hit_anything = true;
-            closest_so_far = temp_rec.t;
-            rec = temp_rec;
-        }
-    }
-    return hit_anything;
-}
-
 
 vec3 getSkyColor(vec3 rd) {
     vec3 col = mix(vec3(1), vec3(.5, .7, 1), .5 + .5 * rd.y);
@@ -172,20 +59,6 @@ float reflectivity(float n1_over_n2, float cosTheta, float wavelenght) {
     return r0 + (1. - r0) * pow((1. - cosTheta), 5.);
 }
 
-//
-// Simple ray tracer
-//
-
-float schlick(float cosine, float r0) {
-    return r0 + (1. - r0) * pow(abs(1. - cosine), 5.);
-}
-
-vec3 refract_mine(vec3 v, vec3 n, float ni_over_nt) {
-    float cos_theta = min(dot(-v, n), 1.0);
-    vec3 r_out_perp = ni_over_nt * (v + cos_theta * n);
-    vec3 r_out_parallel = -sqrt(abs(1. - dot(r_out_perp, r_out_perp))) * n;
-    return r_out_perp + r_out_parallel;
-}
 
 float skyColor(Ray ray) {
 	vec3 sky = getSkyColor(ray.direction);
@@ -200,6 +73,7 @@ float n_wavelength(float lambda_nm) {
     float A = 0.438;
     float B = 0.316;
     
+
     // Calculate refractive index
     float n_lambda = A + B / (lambda_um * lambda_um);
     
