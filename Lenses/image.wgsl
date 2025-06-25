@@ -7,6 +7,7 @@
 #else
     #iChannel0 "Lenses/gridMoving.wgsl"
 #endif
+#include "Lenses/noise.wgsl"
 
 #define SHOW_RING
 
@@ -14,6 +15,14 @@
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
     vec2 lens_uv = fragCoord / iResolution.y;
+
+    float vignette = pow(1.0 - dot(uv - 0.5, uv - 0.5), 2.2) * 1.2;
+    float blurVignette = clamp(1.0 - pow(vignette, 1.4), 0.0, 1.0) + 0.0; // minBlur = 0.0
+    
+    // Sample base texture and add noise BEFORE lens processing
+    vec3 tex = blurTex(uv, 0.03 / 4.0 * blurVignette, 4.0); 
+    tex = addNoise(tex, fragCoord); // Add noise here
+    vec3 color = tex;
     
     // Two lens positions
     vec2 lens_pos1 = vec2(0.4, 0.7); // Fixed at top center
@@ -44,10 +53,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         1.0 / (ior_base + 2.0 * ior_step), // blue
         1.0 / (ior_base + 1.0 * ior_step)  // violet
     );
-    
-    // Sample base texture
-    vec3 tex = texture(iChannel0, uv).rgb;
-    vec3 color = tex;
     
     // Calculate lens influence factors with smooth falloff
     float influence1 = smoothstep(lens_radius, lens_radius * 0.2, lens_dist1);
@@ -81,7 +86,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
                 // Scale the IOR difference by distance from center
                 float scaled_eta = 1.0 + (eta[i] - 1.0) * dispersion_strength;
                 vec2 refract_offset = refract(incident, lens_normal1, scaled_eta).xy;
-                samples[i] = texture(iChannel0, uv + refract_offset).rgb;
+                vec3 sample_color = texture(iChannel0, uv + refract_offset).rgb;
+                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy); // Add noise to samples too
             }
             
             // Extract color components
@@ -118,7 +124,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
                 // Scale the IOR difference by distance from center
                 float scaled_eta = 1.0 + (eta[i] - 1.0) * dispersion_strength;
                 vec2 refract_offset = refract(incident, lens_normal2, scaled_eta).xy;
-                samples[i] = texture(iChannel0, uv + refract_offset).rgb;
+                vec3 sample_color = texture(iChannel0, uv + refract_offset).rgb;
+                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy); // Add noise to samples too
             }
             
             // Extract color components
@@ -148,7 +155,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float ring1 = smoothstep(distance1, 1.0, lens_radius);
     float ring2 = smoothstep(distance2, 1.0, lens_radius);
     float combined_ring = max(ring1, ring2);
-    color *= combined_ring * 45.0;
+    color *= combined_ring * 3.0;
 #endif
     
     fragColor = vec4(color, 1.0);

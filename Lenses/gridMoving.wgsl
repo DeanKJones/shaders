@@ -5,7 +5,7 @@ float checkerboard(vec2 coord, float size){
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     fragCoord.x += iTime * 25.0;
-    float size = 30.;
+    float size = 20.0;
     float c = checkerboard(fragCoord,size);
-    fragColor = vec4(c,c,c,1.0);
+    fragColor = vec4(0, c * 0.8, 0, 1.0);
 }
