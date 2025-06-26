@@ -21,22 +21,23 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     // Sample base texture and add noise BEFORE lens processing
     vec3 tex = blurTex(uv, 0.03 / 4.0 * blurVignette, 4.0); 
-    tex = addNoise(tex, fragCoord); // Add noise here
+    //tex = addNoise(tex, fragCoord); // Add noise here
     vec3 color = tex;
     
     // Two lens positions
     vec2 lens_pos1 = vec2(0.4, 0.7); // Fixed at top center
-    vec2 lens_pos2 = iMouse.xy == vec2(0) ? vec2(0.5, 0.3) : iMouse.xy / iResolution.y; // Mouse controlled
+    vec2 lens_pos2 = vec2(0.15, 0.7); // Mouse controlled
     
     vec2 lens_delta1 = lens_uv - lens_pos1;
     vec2 lens_delta2 = lens_uv - lens_pos2;
     float lens_dist1 = length(lens_delta1);
     float lens_dist2 = length(lens_delta2);
+    bool inlens = false;
 
     // Lens parameters
-    const float lens_radius = 0.25;
+    const float lens_radius = 0.2;
     const float lens_zoom = 1.25;
-    const float lens_radius_fudge = 0.975;
+    const float lens_radius_fudge = 0.995;
 
     float edge_power = 2.0; // Increase for more edge concentration
     float dispersion_factor1 = pow(lens_dist1 / lens_radius, edge_power);
@@ -104,6 +105,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
                 g + (2.0 * y + 2.0 * c - v) / 3.0,
                 b + (2.0 * c + 2.0 * v - y) / 3.0
             );
+            inlens = true;
         }
         
         // Process second lens
@@ -142,6 +144,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
                 g + (2.0 * y + 2.0 * c - v) / 3.0,
                 b + (2.0 * c + 2.0 * v - y) / 3.0
             );
+            inlens = true;
         }
         
         // Blend the lens effects based on normalized influences
@@ -152,9 +155,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 #ifdef SHOW_RING
     float distance1 = distance(lens_pos1, lens_uv);
     float distance2 = distance(lens_pos2, lens_uv);
-    float ring1 = smoothstep(distance1, 1.0, lens_radius);
-    float ring2 = smoothstep(distance2, 1.0, lens_radius);
+    float ring1 = 1.0 - smoothstep(lens_radius - 0.2, lens_radius + 0.02, distance1);
+    float ring2 = 1.0 - smoothstep(lens_radius - 0.2, lens_radius + 0.02, distance2);
     float combined_ring = max(ring1, ring2);
+
+    //if (!inlens) {
+        // Apply a subtle ring effect when not in lens
+        //combined_ring = 0.0; 
+    //}
+
     color *= combined_ring * 3.0;
 #endif
     
