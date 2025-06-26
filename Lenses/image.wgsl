@@ -7,9 +7,15 @@
 #else
     #iChannel0 "Lenses/gridMoving.wgsl"
 #endif
-#include "Lenses/noise.wgsl"
+#include "Lenses/blur.wgsl"
 
 #define SHOW_RING
+
+// Box blur parameters for intersection softening
+const float BOX_BLUR_SIZE = 8.0;     // Size of the box blur kernel
+const float BOX_BLUR_STRENGTH = 0.9; // How much to blend with blurred result
+const float INTERSECTION_WIDTH = 0.05; // Width of the intersection zone to blur
+
 
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -21,12 +27,24 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     // Sample base texture and add noise BEFORE lens processing
     vec3 tex = blurTex(uv, 0.03 / 4.0 * blurVignette, 4.0); 
-    //tex = addNoise(tex, fragCoord); // Add noise here
+    vec3 background_color = tex; // Store original background
     vec3 color = tex;
     
     // Two lens positions
-    vec2 lens_pos1 = vec2(0.4, 0.7); // Fixed at top center
+    vec2 lens_pos1 = vec2(0.45, 0.7); // Fixed at top center
     vec2 lens_pos2 = vec2(0.15, 0.7); // Mouse controlled
+    
+    // Calculate center line between lenses
+    float center_x = (lens_pos1.x + lens_pos2.x) * 0.5;
+    float distance_from_center = abs(lens_uv.x - center_x);
+    
+    // Mouse-controlled infinity point (normalized mouse coordinates)
+    vec2 mouse_norm = iMouse.xy / iResolution.xy;
+    vec2 infinity_offset = (mouse_norm - 0.5) * 0.3; // Scale the offset range
+    
+    // Infinity circles - centered when aligned, move with mouse
+    vec2 infinity_pos1 = lens_pos1 + infinity_offset;
+    vec2 infinity_pos2 = lens_pos2 + infinity_offset;
     
     vec2 lens_delta1 = lens_uv - lens_pos1;
     vec2 lens_delta2 = lens_uv - lens_pos2;
@@ -34,12 +52,23 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float lens_dist2 = length(lens_delta2);
     bool inlens = false;
 
+    // Infinity circle deltas and distances
+    vec2 infinity_delta1 = lens_uv - infinity_pos1;
+    vec2 infinity_delta2 = lens_uv - infinity_pos2;
+    float infinity_dist1 = length(infinity_delta1);
+    float infinity_dist2 = length(infinity_delta2);
+
     // Lens parameters
     const float lens_radius = 0.2;
-    const float lens_zoom = 1.25;
+    const float lens_zoom = 2.5;
     const float lens_radius_fudge = 0.995;
+    
+    // Infinity circle parameters
+    //const float infinity_radius = 0.28;
+    //const float infinity_edge_sharpness = 0.025;
+    //const float infinity_inner_radius = infinity_radius - infinity_edge_sharpness;
 
-    float edge_power = 2.0; // Increase for more edge concentration
+    float edge_power = 2.0;
     float dispersion_factor1 = pow(lens_dist1 / lens_radius, edge_power);
     float dispersion_factor2 = pow(lens_dist2 / lens_radius, edge_power);
     
@@ -56,8 +85,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     );
     
     // Calculate lens influence factors with smooth falloff
-    float influence1 = smoothstep(lens_radius, lens_radius * 0.2, lens_dist1);
-    float influence2 = smoothstep(lens_radius, lens_radius * 0.2, lens_dist2);
+    float influence1 = smoothstep(lens_radius, lens_radius * 0.001, lens_dist1);
+    float influence2 = smoothstep(lens_radius, lens_radius * 0.5, lens_dist2);
     
     // Total influence for normalization
     float total_influence = influence1 + influence2;
@@ -78,17 +107,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
             ));
             
             vec3 incident = normalize(vec3(0.0, 0.0, -1.0));
-            // Scale dispersion based on distance from center
             float edge_factor = lens_dist1 / lens_radius;
-            float dispersion_strength = edge_factor * edge_factor; // Quadratic falloff
+            float dispersion_strength = edge_factor * edge_factor;
 
             vec3 samples[6];
             for(int i = 0; i < 6; i++) {
-                // Scale the IOR difference by distance from center
                 float scaled_eta = 1.0 + (eta[i] - 1.0) * dispersion_strength;
                 vec2 refract_offset = refract(incident, lens_normal1, scaled_eta).xy;
                 vec3 sample_color = texture(iChannel0, uv + refract_offset).rgb;
-                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy); // Add noise to samples too
+                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy);
             }
             
             // Extract color components
@@ -116,18 +143,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
             ));
             
             vec3 incident = normalize(vec3(0.0, 0.0, -1.0));
-            
-            // Scale dispersion based on distance from center
             float edge_factor = lens_dist2 / lens_radius;
-            float dispersion_strength = edge_factor * edge_factor; // Quadratic falloff
+            float dispersion_strength = edge_factor * edge_factor;
 
             vec3 samples[6];
             for(int i = 0; i < 6; i++) {
-                // Scale the IOR difference by distance from center
                 float scaled_eta = 1.0 + (eta[i] - 1.0) * dispersion_strength;
                 vec2 refract_offset = refract(incident, lens_normal2, scaled_eta).xy;
                 vec3 sample_color = texture(iChannel0, uv + refract_offset).rgb;
-                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy); // Add noise to samples too
+                samples[i] = addNoise(sample_color, fragCoord + refract_offset * iResolution.xy);
             }
             
             // Extract color components
@@ -152,17 +176,63 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
                    min(1.0, total_influence * 2.0));
     }
     
+    // Store the color before infinity masking for blur operations
+    vec3 pre_mask_color = color;
+    
+    // ===== NEW INFINITY CIRCLES =====
+    // Create edge masks for infinity circles - only show the edge rings
+    float infinity_mask_strength = 0.0;
+    
+    // Mask 1: Only active within lens_pos1 circle
+    // bool in_lens_area1 = lens_dist1 <= lens_radius + 0.02 && lens_dist2 > lens_radius || lens_dist1 <= lens_radius + 0.02 && lens_dist2 <= lens_radius && lens_uv.x > ((lens_pos1.x + lens_pos2.x) / 2.0);
+    // if (in_lens_area1) {
+    //     float infinity_edge1 = smoothstep(infinity_inner_radius, infinity_radius, infinity_dist1);
+    //     float infinity_ring1 = infinity_edge1 * (smoothstep(infinity_inner_radius - infinity_edge_sharpness, infinity_inner_radius, infinity_dist1));
+        
+    //     // Apply the infinity ring mask to the color
+    //     color = mix(color, vec3(0.0, 0.0, 0.0), infinity_ring1 * 1.0);
+    //     infinity_mask_strength = max(infinity_mask_strength, infinity_ring1);
+    // }
+    
+    // // Mask 2: Only active within lens_pos2 circle  
+    // bool in_lens_area2 = lens_dist2 <= lens_radius + 0.02 && lens_dist1 > lens_radius || lens_dist2 <= lens_radius + 0.02 && lens_dist1 <= lens_radius && lens_uv.x < ((lens_pos1.x + lens_pos2.x) / 2.0);
+    // if (in_lens_area2) {
+    //     float infinity_edge2 = smoothstep(infinity_inner_radius, infinity_radius, infinity_dist2);
+    //     float infinity_ring2 = infinity_edge2 * (smoothstep(infinity_inner_radius - infinity_edge_sharpness, infinity_inner_radius, infinity_dist2));
+        
+    //     // Apply the infinity ring mask to the color
+    //     color = mix(color, vec3(0.0, 0.0, 0.0), infinity_ring2 * 1.0);
+    //     infinity_mask_strength = max(infinity_mask_strength, infinity_ring2);
+    // }
+    
+    // ===== INTERSECTION BLUR PASS =====
+    // Calculate blur influence based on distance from center line
+    float blur_influence = 1.0 - smoothstep(0.0, INTERSECTION_WIDTH, distance_from_center);
+    
+    // Only apply blur in the intersection zone between lenses
+    bool in_intersection_zone = lens_uv.y >= min(lens_pos1.y, lens_pos2.y) - lens_radius && 
+                               lens_uv.y <= max(lens_pos1.y, lens_pos2.y) + lens_radius &&
+                               lens_uv.x >= min(lens_pos1.x, lens_pos2.x) - lens_radius && 
+                               lens_uv.x <= max(lens_pos1.x, lens_pos2.x) + lens_radius;
+    
+    if (in_intersection_zone && blur_influence > 0.0 && infinity_mask_strength > 0.1) {
+        // Use box blur to soften the intersection line
+        //vec3 blurred_color = boxBlurIntersection(uv, color, background_color, BOX_BLUR_SIZE);
+        
+        // Alternative: Use Gaussian blur for smoother results
+        vec3 blurred_color = gaussianBlurIntersection(uv, BOX_BLUR_SIZE);
+        
+        // Mix between original and blurred based on both blur influence and mask strength
+        float final_blur_strength = blur_influence * infinity_mask_strength * BOX_BLUR_STRENGTH;
+        color = mix(color, blurred_color, final_blur_strength);
+    }
+    
 #ifdef SHOW_RING
     float distance1 = distance(lens_pos1, lens_uv);
     float distance2 = distance(lens_pos2, lens_uv);
     float ring1 = 1.0 - smoothstep(lens_radius - 0.2, lens_radius + 0.02, distance1);
     float ring2 = 1.0 - smoothstep(lens_radius - 0.2, lens_radius + 0.02, distance2);
     float combined_ring = max(ring1, ring2);
-
-    //if (!inlens) {
-        // Apply a subtle ring effect when not in lens
-        //combined_ring = 0.0; 
-    //}
 
     color *= combined_ring * 3.0;
 #endif
