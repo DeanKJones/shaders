@@ -1,11 +1,5 @@
 
 #include "Lenses/noise.wgsl"
-#define GRID 0
-#if GRID
-    #iChannel0 "Lenses/grid.wgsl"
-#else
-    #iChannel0 "Lenses/gridMoving.wgsl"
-#endif
 
 // Gaussian blur for smoother intersection
 vec3 gaussianBlurIntersection(vec2 uv, float blur_radius) {
@@ -25,7 +19,7 @@ vec3 gaussianBlurIntersection(vec2 uv, float blur_radius) {
             float weight = exp(-distance_sq / (2.0 * sigma * sigma));
             
             vec3 sample_color = texture(iChannel0, sample_uv).rgb;
-            sample_color = addNoise(sample_color, sample_uv * iResolution.xy);
+            //sample_color = addNoise(sample_color, sample_uv * iResolution.xy);
             
             result += sample_color * weight;
             total_weight += weight;
