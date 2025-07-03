@@ -2,7 +2,7 @@
 float random(in vec2 _st) {
     return fract(sin(dot(_st.xy,
                          vec2(12.9898,78.233)))*
-                              43758.54531723);
+                              43758.5453172222);
 }
 
 vec3 blurTex(vec2 uv, float off, float it) {
@@ -26,24 +26,23 @@ vec3 blurTex(vec2 uv, float off, float it) {
 // Add noise to the texture before lens processing - closer to reference
 vec3 addNoise(vec3 color, vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
-    float resScale = 1440.0/iResolution.y;
-    float noisePixels = 0.9 * resScale; // pixels
+    float resScale = 1440.0 / iResolution.y;
+    float noisePixels = 0.9 * resScale;
     
-    // Vignette calculation (from reference)
+    // Vignette calculation
     float vignette = pow(1.0 - dot(uv - 0.5, uv - 0.5), 2.2) * 1.2;
     vignette = pow(vignette, 3.0);
     
-    // Basic noise (from reference)
-    float noiseTime = mod(iTime * 0.50, 100.0);
+    float noiseTime = mod(iTime * 0.50, 100.0);    // High noise with pixelated UV
+    // Basic noise using UV coordinates only
     float noise = random(uv / resScale + noiseTime) * 0.35;
     
-    // High noise with different UV calculation (from reference)
     vec2 noiseUv = floor(fragCoord * noisePixels) / iResolution.xy / noisePixels;
-    float highNoise = pow(random(noiseUv + noiseTime), 1000.0) * 1.0;
+    float highNoise = pow(random(noiseUv + noiseTime), 3000.0) * 1.0;
     
-    // Add vignette influence to high noise (from reference)
+    // Add vignette influence to high noise
     highNoise += highNoise * vignette * 10.0;
     
-    // Combine both noise types as in reference
+    // Combine both noise types
     return color + noise * 0.2 + highNoise;
 }

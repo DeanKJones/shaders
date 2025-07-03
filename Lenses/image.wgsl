@@ -5,6 +5,7 @@
     #iChannel0 "Grids/gridMoving.wgsl"
 #endif
 #iChannel1 "Lenses/buffer-blur.wgsl"  // Blurred UV coordinates
+#include "Lenses/noise/noise.wgsl"
 
 #define SHOW_RING
 
@@ -17,7 +18,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     // Sample the grid texture using the distorted UV coordinates
     vec3 color = texture(iChannel0, distorted_uv).rgb;
-    
+    color = addNoise(color, fragCoord);
+
     // Apply vignette if needed
     float vignette = pow(1.0 - dot(uv - 0.5, uv - 0.5), 2.2) * 1.2;
     
@@ -34,6 +36,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     color *= combined_ring;
 #endif
-    
+
     fragColor = vec4(color, 1.0);
 }

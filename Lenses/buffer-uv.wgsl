@@ -9,13 +9,13 @@ vec3 GenerateLensUV(vec2 lens_uv,
     float lens_dist1 = distance(lens_uv, lens_pos1);
     if (lens_dist1 < lens_radius) {
         vec2 lens1_uv_normalized = normalize(lens_uv - lens_pos1);
-        lens_uv1 += lens1_uv_normalized * 0.05 * (smoothstep(lens_radius * 0.5, lens_radius, lens_dist1));            
+        lens_uv1 += lens1_uv_normalized * 0.0025 * (smoothstep(lens_radius * 0.5, lens_radius, lens_dist1));            
     }
     // Right lens
     float lens_dist2 = distance(lens_uv, lens_pos2);
     if (lens_dist2 < lens_radius) {
         vec2 lens2_uv_normalized = normalize(lens_uv - lens_pos2);
-        lens_uv2 += lens2_uv_normalized * 0.05 * (smoothstep(lens_radius * 0.5, lens_radius, lens_dist2));            
+        lens_uv2 += lens2_uv_normalized * 0.0025 * (smoothstep(lens_radius * 0.5, lens_radius, lens_dist2));            
     }
 
     if (lens_uv.x < center_x) {
