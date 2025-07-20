@@ -13,7 +13,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     const float squash_min = 0.0;
 
     // Animate squash over time
-    float cycleTime = 4.0;          // seconds for one full squash/unsquash
+    float cycleTime = 1.0;          // seconds for one full squash/unsquash
     float phase = mod(iTime, cycleTime) / cycleTime;                 // 0–1
     float toggle = mod(floor(iTime / cycleTime), 2.0);
     float t = smoothstep(0.0, 1.0, phase);
@@ -22,7 +22,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     }
 
     float lens_y = mix(0.5, 1.1, t);
-    float lens_scale = mix(0.8, 1.5, t);
+    float lens_scale = mix(0.9, 0.4, t);
     float squashY = mix(1.0, squash_min, t);
 
     vec2 lens_pos = vec2(0.5, lens_y);
