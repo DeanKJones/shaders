@@ -2,63 +2,62 @@
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
-    vec2 lens_uv = fragCoord / iResolution.y;
 
     vec3 baseColor = texture(iChannel0, uv).rgb;
 
-    // Lens parameters
-    const float lens_radius = 0.3;
+    // Parameters
+    float lensDistance = 1.0;            // depth of lens plane
+    float phosDistance = 1.5;            // depth of phosphor plane
+    float diskLensRadius = 0.3;          // aperture radius
+    float diskPhosRadius = diskLensRadius * 1.5;  // phosphor radius
+    float maxOffset = 0.3;               // viewer eye offset
 
-    // Minimum squash factor when fully squashed
-    const float squash_min = 0.0;
+    // Viewer offset/tilt from mouse
+    vec2 mouseNorm = (iMouse.xy / iResolution.xy) * 2.0 - 1.0;
+    mouseNorm.x *= iResolution.x / iResolution.y;
+    vec2 viewerOffset = mouseNorm * maxOffset;
 
-    // Animate squash over time
-    float cycleTime = 1.0;          // seconds for one full squash/unsquash
-    float phase = mod(iTime, cycleTime) / cycleTime;                 // 0–1
-    float toggle = mod(floor(iTime / cycleTime), 2.0);
-    float t = smoothstep(0.0, 1.0, phase);
-    if (toggle > 0.5) {
-        t = 1.0 - t;
+    // NDC
+    vec2 ndc = uv * 2.0 - 1.0;
+    ndc.x *= iResolution.x / iResolution.y;
+
+    // FOV
+    float fov = radians(45.0);
+    float tanHalfFov = tan(fov/2.0);
+    vec3 rayDir = normalize(vec3(ndc * tanHalfFov, -1.0));
+
+    // Eye position is offset
+    vec3 eyePos = vec3(viewerOffset * lensDistance, 0.0);
+
+    // Intersect lens plane
+    float tLens = -(lensDistance - eyePos.z) / rayDir.z;
+    vec3 lensHit = eyePos + rayDir * tLens;
+
+    float distLens = length(lensHit.xy);
+
+    if (distLens > diskLensRadius) {
+        // Outside aperture
+        fragColor = vec4(baseColor, 1.0);
+        return;
     }
 
-    float lens_y = mix(0.5, 1.1, t);
-    float lens_scale = mix(0.9, 0.4, t);
-    float squashY = mix(1.0, squash_min, t);
+    // Intersect phosphor plane
+    float tPhos = -(phosDistance - eyePos.z) / rayDir.z;
+    vec3 phosHit = eyePos + rayDir * tPhos;
 
-    vec2 lens_pos = vec2(0.5, lens_y);
+    float distPhos = length(phosHit.xy);
 
-    // Compute relative coords from lens center
-    vec2 rel = lens_uv - lens_pos;
-    vec2 rel_squashed = vec2(rel.x, rel.y / squashY);
+    vec3 color = vec3(0.0);
 
-    float distance = length(rel_squashed);
+    if (distPhos <= diskPhosRadius) {
+        // Inside phosphor disk
+        vec2 sceneUV = 0.5 + phosHit.xy / (phosDistance);
+        color = texture(iChannel0, sceneUV).rgb;
 
-    vec3 color = baseColor;
-
-
-    if (distance < lens_radius) {
-    vec2 center_uv = vec2(0.5, 0.5);
-
-    vec2 rel_to_lens = lens_uv - lens_pos;
-    vec2 scaled_offset = rel_to_lens / lens_scale;
-    vec2 lens_sample_uv = center_uv + scaled_offset;
-
-    // Normalized direction from center of lens to current pixel
-    vec2 lens_uv_normalized = normalize(rel_to_lens);
-
-    // Compute how far you are from center relative to radius
-    float edge_factor = smoothstep(lens_radius * 0.25, lens_radius, distance);
-
-    // Distortion strength grows with t
-    float distortionStrength = t * 0.05;
-
-    // Apply outward distortion near edges
-    lens_sample_uv += lens_uv_normalized * edge_factor * distortionStrength;
-
-    color = texture(iChannel0, lens_sample_uv).rgb;
-}
-
+        // Optional: fade near phosphor edge
+        float fadePhos = smoothstep(diskPhosRadius, diskPhosRadius * 0.95, distPhos);
+        color *= fadePhos;
+    }
 
     fragColor = vec4(color, 1.0);
 }
-
